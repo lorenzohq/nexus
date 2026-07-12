@@ -2,6 +2,7 @@ package lorenzohq.nexus.security;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -22,9 +23,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String HEADER_NAME = "Authorization";
     private static final String HEADER_PREFIX = "Bearer ";
+    private static final String COOKIE_NAME = "access_token";
 
     private final AccessTokenService jwtService;
     private final CustomUserDetailsService userDetailsService;
+
+    private String extractToken(HttpServletRequest request) {
+        String authHeader = request.getHeader(HEADER_NAME);
+        if (authHeader != null && authHeader.startsWith(HEADER_PREFIX)) {
+            return authHeader.substring(HEADER_PREFIX.length());
+        }
+
+        Cookie[] cookies = request.getCookies();
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if (COOKIE_NAME.equals(cookie.getName())) {
+                    return cookie.getValue();
+                }
+            }
+        }
+
+        return null;
+    }
 
     @Override
     protected void doFilterInternal(
@@ -32,14 +52,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
-        String authHeader = request.getHeader(HEADER_NAME);
+        String token = extractToken(request);
 
-        if (authHeader == null || !authHeader.startsWith(HEADER_PREFIX)) {
+        if (token == null) {
             filterChain.doFilter(request, response);
             return;
         }
-
-        String token = authHeader.substring(HEADER_PREFIX.length());
 
         if (jwtService.isTokenValid(token) && SecurityContextHolder.getContext().getAuthentication() == null) {
             UUID userId = jwtService.extractUserId(token);
